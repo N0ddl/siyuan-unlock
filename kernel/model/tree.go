@@ -130,15 +130,19 @@ func resetTree(tree *parse.Tree, titleSuffix string, removeAvBinding bool) {
 func pagedPaths(localPath string, pageSize int) (ret map[int][]string) {
 	ret = map[int][]string{}
 	page := 1
-	filelock.Walk(localPath, func(path string, info fs.FileInfo, err error) error {
-		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") {
+	filelock.Walk(localPath, func(path string, d fs.DirEntry, err error) error {
+		if nil != err || nil == d {
+			return nil
+		}
+
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if !strings.HasSuffix(info.Name(), ".sy") {
+		if !strings.HasSuffix(d.Name(), ".sy") {
 			return nil
 		}
 
@@ -206,7 +210,8 @@ func LoadTreeByBlockIDWithReindex(id string) (ret *parse.Tree, err error) {
 
 func LoadTreeByBlockID(id string) (ret *parse.Tree, err error) {
 	if !ast.IsNodeIDPattern(id) {
-		logging.LogErrorf("block id is invalid [id=%s]", id)
+		stack := logging.ShortStack()
+		logging.LogErrorf("block id is invalid [id=%s], stack: [%s]", id, stack)
 		return nil, ErrTreeNotFound
 	}
 
@@ -248,15 +253,15 @@ func searchTreeInFilesystem(rootID string) {
 
 	logging.LogWarnf("searching tree on filesystem [rootID=%s]", rootID)
 	var treePath string
-	filepath.Walk(util.DataDir, func(path string, info fs.FileInfo, err error) error {
-		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") {
+	filelock.Walk(util.DataDir, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if !strings.HasSuffix(info.Name(), ".sy") {
+		if !strings.HasSuffix(d.Name(), ".sy") {
 			return nil
 		}
 

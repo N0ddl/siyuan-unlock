@@ -154,8 +154,6 @@ func ListNotebooks() (ret []*Box, err error) {
 		sort.Slice(ret, func(i, j int) bool {
 			return util.PinYinCompare(ret[j].Name, ret[i].Name)
 		})
-	case util.SortModeUpdatedASC:
-	case util.SortModeUpdatedDESC:
 	case util.SortModeAlphanumASC:
 		sort.Slice(ret, func(i, j int) bool {
 			return util.NaturalCompare(ret[i].Name, ret[j].Name)
@@ -166,12 +164,10 @@ func ListNotebooks() (ret []*Box, err error) {
 		})
 	case util.SortModeCustom:
 		sort.Slice(ret, func(i, j int) bool { return ret[i].Sort < ret[j].Sort })
-	case util.SortModeRefCountASC:
-	case util.SortModeRefCountDESC:
 	case util.SortModeCreatedASC:
-		sort.Slice(ret, func(i, j int) bool { return util.NaturalCompare(ret[j].ID, ret[i].ID) })
+		sort.Slice(ret, func(i, j int) bool { return ret[i].ID < ret[j].ID })
 	case util.SortModeCreatedDESC:
-		sort.Slice(ret, func(i, j int) bool { return util.NaturalCompare(ret[j].ID, ret[i].ID) })
+		sort.Slice(ret, func(i, j int) bool { return ret[i].ID > ret[j].ID })
 	}
 	return
 }
@@ -398,7 +394,7 @@ type BoxInfo struct {
 func (box *Box) GetInfo() (ret *BoxInfo) {
 	ret = &BoxInfo{
 		ID:   box.ID,
-		Name: box.Name,
+		Name: util.EscapeHTML(box.Name),
 	}
 
 	fileInfos := box.ListFiles("/")
@@ -596,21 +592,28 @@ func normalizeTree(tree *parse.Tree) (yfmRootID, yfmTitle, yfmUpdated string) {
 					}
 					continue
 				}
-				if "tags" == attrK {
+				if "tags" == attrK && nil != attrV {
 					var tags string
-					for i, tag := range attrV.([]any) {
-						tagStr := strings.TrimSpace(tag.(string))
+					if str, ok := attrV.(string); ok {
+						tags = strings.TrimSpace(str)
+						tree.Root.SetIALAttr("tags", tags)
+						continue
+					}
+
+					for _, tag := range attrV.([]any) {
+						tagStr := fmt.Sprintf("%v", tag)
 						if "" == tag {
 							continue
 						}
 						tagStr = strings.TrimLeft(tagStr, "#,'\"")
 						tagStr = strings.TrimRight(tagStr, "#,'\"")
-						tags += tagStr
-						if i < len(attrV.([]any))-1 {
-							tags += ","
-						}
+						tags += tagStr + ","
 					}
-					tree.Root.SetIALAttr("tags", tags)
+					tags = strings.TrimRight(tags, ",")
+					tags = strings.TrimSpace(tags)
+					if "" != tags {
+						tree.Root.SetIALAttr("tags", tags)
+					}
 					continue
 				}
 
@@ -704,7 +707,7 @@ func getBoxesByPaths(paths []string) (ret map[string]*Box) {
 	ret = map[string]*Box{}
 	var ids []string
 	for _, p := range paths {
-		ids = append(ids, strings.TrimSuffix(path.Base(p), ".sy"))
+		ids = append(ids, util.GetTreeID(p))
 	}
 
 	bts := treenode.GetBlockTrees(ids)

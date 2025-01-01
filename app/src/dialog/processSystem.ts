@@ -23,7 +23,7 @@ import {setEmpty} from "../mobile/util/setEmpty";
 import {hideAllElements, hideElements} from "../protyle/ui/hideElements";
 import {App} from "../index";
 import {saveScroll} from "../protyle/scroll/saveScroll";
-import {isInAndroid, isInIOS, setStorageVal} from "../protyle/util/compatibility";
+import {isInAndroid, isInHarmony, isInIOS, setStorageVal} from "../protyle/util/compatibility";
 import {Plugin} from "../plugin";
 
 const updateTitle = (rootID: string, tab: Tab, protyle?: IProtyle) => {
@@ -179,14 +179,14 @@ export const setDefRefCount = (data: {
             const attrElement = editor.protyle.title.element.querySelector(".protyle-attr");
             const countElement = attrElement.querySelector(".protyle-attr--refcount");
             if (countElement) {
-                if (data.refCount === 0) {
+                if (data.rootRefCount === 0) {
                     countElement.remove();
                 } else {
-                    countElement.textContent = data.refCount.toString();
-                    countElement.setAttribute("data-id", data.refIDs.toString());
+                    countElement.textContent = data.rootRefCount.toString();
+                    countElement.setAttribute("data-id", JSON.stringify(data.refIDs));
                 }
-            } else if (data.refCount > 0) {
-                attrElement.insertAdjacentHTML("beforeend", `<div class="protyle-attr--refcount popover__block" data-defids="[&quot;${data.blockID}&quot;]" data-id="${data.refIDs.toString()}" style="">${data.refCount}</div>`);
+            } else if (data.rootRefCount > 0) {
+                attrElement.insertAdjacentHTML("beforeend", `<div class="protyle-attr--refcount popover__block" data-defids="[&quot;${data.blockID}&quot;]" data-id="${JSON.stringify(data.refIDs)}" style="">${data.rootRefCount}</div>`);
             }
             return;
         }
@@ -301,7 +301,7 @@ export const exitSiYuan = async () => {
                         /// #if !BROWSER
                         ipcRenderer.send(Constants.SIYUAN_QUIT, location.port);
                         /// #else
-                        if (isInIOS() || isInAndroid()) {
+                        if (isInIOS() || isInAndroid() || isInHarmony()) {
                             window.location.href = "siyuan://api/system/exit";
                         }
                         /// #endif
@@ -310,6 +310,11 @@ export const exitSiYuan = async () => {
             }
         } else if (response.code === 2) { // 提示新安装包
             hideMessage();
+
+            if ("std" === window.siyuan.config.system.container) {
+                ipcRenderer.send(Constants.SIYUAN_SHOW_WINDOW);
+            }
+
             confirmDialog(window.siyuan.languages.tip, response.msg, () => {
                 fetchPost("/api/system/exit", {
                     force: true,
@@ -341,7 +346,7 @@ export const exitSiYuan = async () => {
             /// #if !BROWSER
             ipcRenderer.send(Constants.SIYUAN_QUIT, location.port);
             /// #else
-            if (isInIOS() || isInAndroid()) {
+            if (isInIOS() || isInAndroid() || isInHarmony()) {
                 window.location.href = "siyuan://api/system/exit";
             }
             /// #endif
@@ -408,7 +413,7 @@ export const progressStatus = (data: IWebSocketData) => {
         statusElement.style.bottom = "0";
         statusTimeout = window.setTimeout(() => {
             statusElement.style.bottom = "";
-        }, 7000);
+        }, 12000);
     } else {
         const msgElement = statusElement.querySelector(".status__msg");
         if (msgElement) {
@@ -416,7 +421,7 @@ export const progressStatus = (data: IWebSocketData) => {
             msgElement.innerHTML = data.msg;
             statusTimeout = window.setTimeout(() => {
                 msgElement.innerHTML = "";
-            }, 7000);
+            }, 12000);
         }
     }
 };

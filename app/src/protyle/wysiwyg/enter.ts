@@ -120,6 +120,7 @@ export const enter = (blockElement: HTMLElement, range: Range, protyle: IProtyle
         editableElement.parentElement.removeAttribute("data-render");
         highlightRender(blockElement);
         updateTransaction(protyle, blockElement.getAttribute("data-node-id"), blockElement.outerHTML, oldHTML);
+        scrollCenter(protyle);
         return true;
     }
 
@@ -407,7 +408,13 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
             newElement = genListItemElement(listItemElement, 0, false);
             const newEditElement = getContenteditableElement(newElement);
             newEditElement.appendChild(range.extractContents());
-            newEditElement.parentElement.after(subListElement);
+            let subListNextElement = subListElement.nextElementSibling;
+            newElement.lastElementChild.before(subListElement);
+            // https://github.com/siyuan-note/siyuan/issues/13016
+            while (!subListNextElement.classList.contains("protyle-attr")) {
+                subListNextElement = subListNextElement.nextElementSibling;
+                newElement.lastElementChild.before(subListNextElement.previousElementSibling);
+            }
             listItemElement.insertAdjacentElement("afterend", newElement);
             if (listItemElement.getAttribute("data-subtype") === "o") {
                 updateListOrder(listItemElement.parentElement);
@@ -455,7 +462,7 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
     }
     range.insertNode(document.createElement("wbr"));
     const listItemHTML = listItemElement.outerHTML;
-    const html = listItemElement.parentElement.outerHTML;
+    const oldHTML = listItemElement.parentElement.outerHTML;
     if (range.toString() !== "") {
         // 选中数学公式后回车取消选中 https://github.com/siyuan-note/siyuan/issues/12637#issuecomment-2381106949
         const mathElement = hasClosestByAttribute(range.startContainer, "data-type", "inline-math");
@@ -513,7 +520,7 @@ const listEnter = (protyle: IProtyle, blockElement: HTMLElement, range: Range) =
             data: listItemHTML
         }]);
     } else {
-        updateTransaction(protyle, listItemElement.parentElement.getAttribute("data-node-id"), listItemElement.parentElement.outerHTML, html);
+        updateTransaction(protyle, listItemElement.parentElement.getAttribute("data-node-id"), listItemElement.parentElement.outerHTML, oldHTML);
     }
     focusByWbr(newElement, range);
     scrollCenter(protyle);
@@ -534,18 +541,26 @@ const removeEmptyNode = (newElement: Element) => {
 export const softEnter = (range: Range, nodeElement: HTMLElement, protyle: IProtyle) => {
     let startElement = range.startContainer as HTMLElement;
     const nextSibling = hasNextSibling(startElement) as Element;
-    // 图片之前软换行
-    if (nextSibling && nextSibling.nodeType !== 3 && nextSibling.classList.contains("img")) {
-        nextSibling.insertAdjacentHTML("beforebegin", "<wbr>");
-        const oldHTML = nodeElement.outerHTML;
-        nextSibling.previousElementSibling.remove();
-        const newlineNode = document.createTextNode("\n");
-        startElement.after(document.createTextNode(Constants.ZWSP));
-        startElement.after(newlineNode);
-        range.selectNode(newlineNode);
-        range.collapse(false);
-        updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+    if (nodeElement.getAttribute("data-type") === "NodeAttributeView") {
         return true;
+    }
+    if (nextSibling && nextSibling.nodeType !== 3) {
+        const textPosition = getSelectionOffset(range.startContainer, protyle.wysiwyg.element, range);
+        if (textPosition.end === range.endContainer.textContent.length) {
+            // 图片之前软换行 || 数学公式之前软换行 https://github.com/siyuan-note/siyuan/issues/13621
+            if (nextSibling.classList.contains("img") || nextSibling.getAttribute("data-type") === "inline-math") {
+                nextSibling.insertAdjacentHTML("beforebegin", "<wbr>");
+                const oldHTML = nodeElement.outerHTML;
+                nextSibling.previousElementSibling.remove();
+                const newlineNode = document.createTextNode("\n");
+                startElement.after(document.createTextNode(Constants.ZWSP));
+                startElement.after(newlineNode);
+                range.selectNode(newlineNode);
+                range.collapse(false);
+                updateTransaction(protyle, nodeElement.getAttribute("data-node-id"), nodeElement.outerHTML, oldHTML);
+                return true;
+            }
+        }
     }
     // 行内元素末尾软换行 https://github.com/siyuan-note/insider/issues/886
     if (startElement.nodeType === 3) {

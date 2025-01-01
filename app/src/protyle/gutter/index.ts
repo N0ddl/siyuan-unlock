@@ -3,7 +3,8 @@ import {
     hasClosestByClassName,
     hasClosestByMatchTag,
     hasClosestByTag,
-    hasTopClosestByClassName, isInEmbedBlock
+    hasTopClosestByClassName,
+    isInEmbedBlock
 } from "../util/hasClosest";
 import {getIconByType} from "../../editor/getIcon";
 import {enterBack, iframeMenu, setFold, tableMenu, videoMenu, zoomOut} from "../../menus/protyle";
@@ -12,6 +13,7 @@ import {copySubMenu, openAttr, openFileAttr, openWechatNotify} from "../../menus
 import {
     copyPlainText,
     isInAndroid,
+    isInHarmony,
     isMac,
     isOnlyMeta,
     openByMobile,
@@ -21,7 +23,8 @@ import {
 import {
     transaction,
     turnsIntoOneTransaction,
-    turnsIntoTransaction, turnsOneInto,
+    turnsIntoTransaction,
+    turnsOneInto,
     updateBatchTransaction,
     updateTransaction
 } from "../wysiwyg/transaction";
@@ -33,13 +36,7 @@ import {blockRender} from "../render/blockRender";
 import {getContenteditableElement, getTopAloneElement, isNotEditBlock} from "../wysiwyg/getBlock";
 import * as dayjs from "dayjs";
 import {fetchPost} from "../../util/fetch";
-import {
-    cancelSB,
-    genEmptyElement,
-    getLangByType,
-    insertEmptyBlock,
-    jumpToParent,
-} from "../../block/util";
+import {cancelSB, genEmptyElement, getLangByType, insertEmptyBlock, jumpToParent,} from "../../block/util";
 import {countBlockWord} from "../../layout/status";
 import {Constants} from "../../constants";
 import {mathRender} from "../render/mathRender";
@@ -55,7 +52,7 @@ import {hideTooltip} from "../../dialog/tooltip";
 import {appearanceMenu} from "../toolbar/Font";
 import {setPosition} from "../../util/setPosition";
 import {emitOpenMenu} from "../../plugin/EventBus";
-import {insertAttrViewBlockAnimation} from "../render/av/row";
+import {insertAttrViewBlockAnimation, updateHeader} from "../render/av/row";
 import {avContextmenu, duplicateCompletely} from "../render/av/action";
 import {getPlainText} from "../util/paste";
 import {addEditorToDatabase} from "../render/av/addToDatabase";
@@ -64,6 +61,7 @@ import {processClonePHElement} from "../render/util";
 import {openFileById} from "../../editor/util";
 /// #endif
 import {checkFold} from "../../util/noRelyPCFunction";
+import {copyTextByType} from "../toolbar/util";
 
 export class Gutter {
     public element: HTMLElement;
@@ -96,7 +94,10 @@ export class Gutter {
                         return true;
                     }
                 });
-                avElement.querySelector(`.av__row[data-id="${buttonElement.dataset.rowId}"]`).classList.add("av__row--select");
+                const rowElement = avElement.querySelector(`.av__row[data-id="${buttonElement.dataset.rowId}"]`);
+                rowElement.classList.add("av__row--select");
+                rowElement.querySelector(".av__firstcol use").setAttribute("xlink:href", "#iconCheck");
+                updateHeader(rowElement as HTMLElement);
                 avElement.querySelectorAll(".av__row--select:not(.av__row--header)").forEach(item => {
                     selectIds.push(item.getAttribute("data-id"));
                     selectElements.push(item);
@@ -147,7 +148,7 @@ export class Gutter {
 
             buttonElement.style.opacity = "0.1";
             window.siyuan.dragElement = avElement as HTMLElement || protyle.wysiwyg.element;
-            event.dataTransfer.setData(`${Constants.SIYUAN_DROP_GUTTER}${buttonElement.getAttribute("data-type")}${Constants.ZWSP}${buttonElement.getAttribute("data-subtype")}${Constants.ZWSP}${selectIds}`,
+            event.dataTransfer.setData(`${Constants.SIYUAN_DROP_GUTTER}${buttonElement.getAttribute("data-type")}${Constants.ZWSP}${buttonElement.getAttribute("data-subtype")}${Constants.ZWSP}${selectIds}${Constants.ZWSP}${window.siyuan.config.system.workspaceDir}`,
                 protyle.wysiwyg.element.innerHTML);
         });
         this.element.addEventListener("dragend", () => {
@@ -439,7 +440,7 @@ export class Gutter {
             Array.from(protyle.wysiwyg.element.querySelectorAll(`[data-node-id="${buttonElement.getAttribute("data-node-id")}"]`)).find(item => {
                 if (!isInEmbedBlock(item) && this.isMatchNode(item)) {
                     const rowItem = item.querySelector(`.av__row[data-id="${buttonElement.dataset.rowId}"]`);
-                    Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, av__row--hl")).forEach(hlItem => {
+                    Array.from(protyle.wysiwyg.element.querySelectorAll(".protyle-wysiwyg--hl, .av__row--hl")).forEach(hlItem => {
                         if (!item.isSameNode(hlItem)) {
                             hlItem.classList.remove("protyle-wysiwyg--hl");
                         }
@@ -469,7 +470,7 @@ export class Gutter {
             hideElements(["gutter"], protyle);
             event.stopPropagation();
             event.preventDefault();
-        });
+        }, {passive: true});
     }
 
     private isMatchNode(item: Element) {
@@ -745,20 +746,7 @@ export class Gutter {
                 }
             }).element);
         }
-        const copyMenu: IMenu[] = [{
-            id: "copy",
-            iconHTML: "",
-            label: window.siyuan.languages.copy,
-            accelerator: "⌘C",
-            click() {
-                if (isNotEditBlock(selectsElement[0])) {
-                    focusBlock(selectsElement[0]);
-                } else {
-                    focusByRange(getEditorRange(selectsElement[0]));
-                }
-                document.execCommand("copy");
-            }
-        }, {
+        const copyMenu: IMenu[] = (copySubMenu(Array.from(selectsElement).map(item => item.getAttribute("data-node-id")), true, selectsElement[0]) as IMenu[]).concat([{
             id: "copyPlainText",
             iconHTML: "",
             label: window.siyuan.languages.copyPlainText,
@@ -772,6 +760,19 @@ export class Gutter {
                 focusBlock(selectsElement[0]);
             }
         }, {
+            id: "copy",
+            iconHTML: "",
+            label: window.siyuan.languages.copy,
+            accelerator: "⌘C",
+            click() {
+                if (isNotEditBlock(selectsElement[0])) {
+                    focusBlock(selectsElement[0]);
+                } else {
+                    focusByRange(getEditorRange(selectsElement[0]));
+                }
+                document.execCommand("copy");
+            }
+        }, {
             id: "duplicate",
             iconHTML: "",
             label: window.siyuan.languages.duplicate,
@@ -780,10 +781,20 @@ export class Gutter {
             click() {
                 duplicateBlock(selectsElement, protyle);
             }
-        }];
+        }]);
+        copyMenu.splice(4, 1, {
+            id: "copyHPath",
+            iconHTML: "",
+            label: window.siyuan.languages.copyHPath,
+            accelerator: window.siyuan.config.keymap.editor.general.copyHPath.custom,
+            click: () => {
+                copyTextByType([selectsElement[0].getAttribute("data-node-id")], "hPath");
+                focusBlock(selectsElement[0]);
+            }
+        });
         const copyTextRefMenu = this.genCopyTextRef(selectsElement);
         if (copyTextRefMenu) {
-            copyMenu.splice(2, 0, copyTextRefMenu);
+            copyMenu.splice(7, 0, copyTextRefMenu);
         }
         window.siyuan.menus.menu.append(new MenuItem({
             id: "copy",
@@ -1260,7 +1271,7 @@ export class Gutter {
             }).element);
         }
 
-        const copyMenu = (copySubMenu(id, true, nodeElement) as IMenu[]).concat([{
+        const copyMenu = (copySubMenu([id], true, nodeElement) as IMenu[]).concat([{
             id: "copyPlainText",
             iconHTML: "",
             label: window.siyuan.languages.copyPlainText,
@@ -1647,6 +1658,8 @@ export class Gutter {
                     fetchPost("/api/block/getHeadingChildrenDOM", {id}, (response) => {
                         if (isInAndroid()) {
                             window.JSAndroid.writeHTMLClipboard(protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
+                        } else if (isInHarmony()) {
+                            window.JSHarmony.writeHTMLClipboard(protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
                         } else {
                             writeText(response.data + Constants.ZWSP);
                         }
@@ -1661,6 +1674,8 @@ export class Gutter {
                     fetchPost("/api/block/getHeadingChildrenDOM", {id}, (response) => {
                         if (isInAndroid()) {
                             window.JSAndroid.writeHTMLClipboard(protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
+                        } else if (isInHarmony()) {
+                            window.JSHarmony.writeHTMLClipboard(protyle.lute.BlockDOM2StdMd(response.data).trimEnd(), response.data + Constants.ZWSP);
                         } else {
                             writeText(response.data + Constants.ZWSP);
                         }

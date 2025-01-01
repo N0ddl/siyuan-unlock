@@ -18,6 +18,7 @@ package model
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -47,6 +48,11 @@ var (
 // checkIndex 自动校验数据库索引，仅在数据同步执行完成后执行一次。
 func checkIndex() {
 	checkIndexOnce.Do(func() {
+		if util.ContainerAndroid == util.Container || util.ContainerIOS == util.Container || util.ContainerHarmony == util.Container {
+			// 移动端不执行校验 https://ld246.com/article/1734939896061
+			return
+		}
+
 		logging.LogInfof("start checking index...")
 
 		removeDuplicateDatabaseIndex()
@@ -151,22 +157,22 @@ func resetDuplicateBlocksOnFileSys() {
 
 		boxPath := filepath.Join(util.DataDir, box.ID)
 		var duplicatedTrees []*parse.Tree
-		filelock.Walk(boxPath, func(path string, info os.FileInfo, err error) error {
-			if nil == info {
+		filelock.Walk(boxPath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || nil == d {
 				return nil
 			}
 
-			if info.IsDir() {
+			if d.IsDir() {
 				if boxPath == path {
 					// 跳过笔记本文件夹
 					return nil
 				}
 
-				if strings.HasPrefix(info.Name(), ".") {
+				if strings.HasPrefix(d.Name(), ".") {
 					return filepath.SkipDir
 				}
 
-				if !ast.IsNodeIDPattern(info.Name()) {
+				if !ast.IsNodeIDPattern(d.Name()) {
 					return nil
 				}
 				return nil
@@ -176,7 +182,7 @@ func resetDuplicateBlocksOnFileSys() {
 				return nil
 			}
 
-			if !ast.IsNodeIDPattern(strings.TrimSuffix(info.Name(), ".sy")) {
+			if !ast.IsNodeIDPattern(strings.TrimSuffix(d.Name(), ".sy")) {
 				logging.LogWarnf("invalid .sy file name [%s]", path)
 				box.moveCorruptedData(path)
 				return nil
@@ -285,18 +291,18 @@ func fixBlockTreeByFileSys() {
 	for _, box := range boxes {
 		boxPath := filepath.Join(util.DataDir, box.ID)
 		var paths []string
-		filelock.Walk(boxPath, func(path string, info os.FileInfo, err error) error {
+		filelock.Walk(boxPath, func(path string, d fs.DirEntry, err error) error {
+			if nil != err || nil == d {
+				return nil
+			}
+
 			if boxPath == path {
 				// 跳过根路径（笔记本文件夹）
 				return nil
 			}
 
-			if nil == info {
-				return nil
-			}
-
-			if info.IsDir() {
-				if strings.HasPrefix(info.Name(), ".") {
+			if d.IsDir() {
+				if strings.HasPrefix(d.Name(), ".") {
 					return filepath.SkipDir
 				}
 				return nil

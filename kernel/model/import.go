@@ -49,6 +49,7 @@ import (
 	"github.com/siyuan-note/siyuan/kernel/av"
 	"github.com/siyuan-note/siyuan/kernel/filesys"
 	"github.com/siyuan-note/siyuan/kernel/sql"
+	"github.com/siyuan-note/siyuan/kernel/task"
 	"github.com/siyuan-note/siyuan/kernel/treenode"
 	"github.com/siyuan-note/siyuan/kernel/util"
 )
@@ -67,6 +68,7 @@ func HTML2Markdown(htmlStr string, luteEngine *lute.Lute) (markdown string, with
 }
 
 func HTML2Tree(htmlStr string, luteEngine *lute.Lute) (tree *parse.Tree, withMath bool) {
+	htmlStr = gulu.Str.RemovePUA(htmlStr)
 	assetDirPath := filepath.Join(util.DataDir, "assets")
 	tree = luteEngine.HTML2Tree(htmlStr)
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
@@ -118,12 +120,12 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	defer os.RemoveAll(unzipPath)
 
 	var syPaths []string
-	filelock.Walk(unzipPath, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(unzipPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".sy") {
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".sy") {
 			syPaths = append(syPaths, path)
 		}
 		return nil
@@ -226,14 +228,14 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	renameAvPaths := map[string]string{}
 	if gulu.File.IsExist(storageAvDir) {
 		// 重新生成数据库数据
-		filelock.Walk(storageAvDir, func(path string, info fs.FileInfo, err error) error {
-			if !strings.HasSuffix(path, ".json") || !ast.IsNodeIDPattern(strings.TrimSuffix(info.Name(), ".json")) {
+		filelock.Walk(storageAvDir, func(path string, d fs.DirEntry, err error) error {
+			if !strings.HasSuffix(path, ".json") || !ast.IsNodeIDPattern(strings.TrimSuffix(d.Name(), ".json")) {
 				return nil
 			}
 
 			// 重命名数据库
 			newAvID := ast.NewNodeID()
-			oldAvID := strings.TrimSuffix(info.Name(), ".json")
+			oldAvID := strings.TrimSuffix(d.Name(), ".json")
 			newPath := filepath.Join(filepath.Dir(path), newAvID+".json")
 			renameAvPaths[path] = newPath
 			avIDs[oldAvID] = newAvID
@@ -460,12 +462,12 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 
 	// 重命名文件路径
 	renamePaths := map[string]string{}
-	filelock.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
+	filelock.Walk(unzipRootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if info.IsDir() && ast.IsNodeIDPattern(info.Name()) {
+		if d.IsDir() && ast.IsNodeIDPattern(d.Name()) {
 			renamePaths[path] = path
 		}
 		return nil
@@ -535,8 +537,8 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 
 	// 将包含的资源文件统一移动到 data/assets/ 下
 	var assetsDirs []string
-	filelock.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
-		if strings.Contains(path, "assets") && info.IsDir() {
+	filelock.Walk(unzipRootPath, func(path string, d fs.DirEntry, err error) error {
+		if strings.Contains(path, "assets") && d.IsDir() {
 			assetsDirs = append(assetsDirs, path)
 		}
 		return nil
@@ -550,6 +552,25 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 			}
 		}
 		os.RemoveAll(assets)
+	}
+
+	// 将包含的自定义表情统一移动到 data/emojis/ 下
+	var emojiDirs []string
+	filelock.Walk(unzipRootPath, func(path string, d fs.DirEntry, err error) error {
+		if strings.Contains(path, "emojis") && d.IsDir() {
+			emojiDirs = append(emojiDirs, path)
+		}
+		return nil
+	})
+	dataEmojis := filepath.Join(util.DataDir, "emojis")
+	for _, emojis := range emojiDirs {
+		if gulu.File.IsDir(emojis) {
+			if err = filelock.Copy(emojis, dataEmojis); err != nil {
+				logging.LogErrorf("copy emojis from [%s] to [%s] failed: %s", emojis, dataEmojis, err)
+				return
+			}
+		}
+		os.RemoveAll(emojis)
 	}
 
 	var baseTargetPath string
@@ -570,15 +591,15 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	}
 
 	var treePaths []string
-	filelock.Walk(unzipRootPath, func(path string, info fs.FileInfo, err error) error {
-		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") {
+	filelock.Walk(unzipRootPath, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if !strings.HasSuffix(info.Name(), ".sy") {
+		if !strings.HasSuffix(d.Name(), ".sy") {
 			return nil
 		}
 
@@ -611,6 +632,8 @@ func ImportSY(zipPath, boxID, toPath string) (err error) {
 	}
 
 	IncSync()
+
+	task.AppendTask(task.UpdateIDs, util.PushUpdateIDs, blockIDs)
 	return
 }
 
@@ -621,6 +644,7 @@ func ImportData(zipPath string) (err error) {
 	lockSync()
 	defer unlockSync()
 
+	logging.LogInfof("import data from [%s]", zipPath)
 	baseName := filepath.Base(zipPath)
 	ext := filepath.Ext(baseName)
 	baseName = strings.TrimSuffix(baseName, ext)
@@ -655,6 +679,7 @@ func ImportData(zipPath string) (err error) {
 		return
 	}
 
+	logging.LogInfof("import data from [%s] done", zipPath)
 	IncSync()
 	FullReindex()
 	return
@@ -695,22 +720,23 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 
 	hPathsIDs := map[string]string{}
 	idPaths := map[string]string{}
+	moveIDs := map[string]string{}
 
 	if gulu.File.IsDir(localPath) { // 导入文件夹
 		// 收集所有资源文件
 		assets := map[string]string{}
-		filelock.Walk(localPath, func(currentPath string, info os.FileInfo, walkErr error) error {
+		filelock.Walk(localPath, func(currentPath string, d fs.DirEntry, err error) error {
 			if localPath == currentPath {
 				return nil
 			}
-			if strings.HasPrefix(info.Name(), ".") {
-				if info.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") {
+				if d.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
 			}
 
-			if !strings.HasSuffix(info.Name(), ".md") && !strings.HasSuffix(info.Name(), ".markdown") {
+			if !strings.HasSuffix(d.Name(), ".md") && !strings.HasSuffix(d.Name(), ".markdown") {
 				assets[currentPath] = currentPath
 				return nil
 			}
@@ -719,11 +745,11 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 
 		targetPaths := map[string]string{}
 		assetsDone := map[string]string{}
-
+		count := 0
 		// md 转换 sy
-		filelock.Walk(localPath, func(currentPath string, info os.FileInfo, walkErr error) error {
-			if strings.HasPrefix(info.Name(), ".") {
-				if info.IsDir() {
+		filelock.Walk(localPath, func(currentPath string, d fs.DirEntry, err error) error {
+			if strings.HasPrefix(d.Name(), ".") {
+				if d.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
@@ -731,16 +757,16 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 
 			var tree *parse.Tree
 			var ext string
-			title := info.Name()
-			if !info.IsDir() {
-				ext = path.Ext(info.Name())
-				title = strings.TrimSuffix(info.Name(), ext)
+			title := d.Name()
+			if !d.IsDir() {
+				ext = util.Ext(d.Name())
+				title = strings.TrimSuffix(d.Name(), ext)
 			}
 			id := ast.NewNodeID()
 
 			curRelPath := filepath.ToSlash(strings.TrimPrefix(currentPath, localPath))
 			targetPath := path.Join(baseTargetPath, id)
-			hPath := path.Join(baseHPath, filepath.ToSlash(strings.TrimPrefix(currentPath, localPath)))
+			hPath := path.Join(baseHPath, filepath.Base(localPath), filepath.ToSlash(strings.TrimPrefix(currentPath, localPath)))
 			hPath = strings.TrimSuffix(hPath, ext)
 			if "" == curRelPath {
 				curRelPath = "/"
@@ -756,10 +782,10 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 				targetPaths[curRelPath] = targetPath
 			} else {
 				targetPath = targetPaths[curRelPath]
-				id = strings.TrimSuffix(path.Base(targetPath), ".sy")
+				id = util.GetTreeID(targetPath)
 			}
 
-			if info.IsDir() {
+			if d.IsDir() {
 				if subMdFiles := util.GetFilePathsByExts(currentPath, []string{".md", ".markdown"}); 1 > len(subMdFiles) {
 					// 如果该文件夹中不包含 Markdown 文件则不处理 https://github.com/siyuan-note/siyuan/issues/11567
 					return nil
@@ -776,7 +802,7 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 				return nil
 			}
 
-			if !strings.HasSuffix(info.Name(), ".md") && !strings.HasSuffix(info.Name(), ".markdown") {
+			if !strings.HasSuffix(d.Name(), ".md") && !strings.HasSuffix(d.Name(), ".markdown") {
 				return nil
 			}
 
@@ -793,12 +819,13 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 			}
 
 			if "" != yfmRootID {
+				moveIDs[id] = yfmRootID
 				id = yfmRootID
 			}
 			if "" != yfmTitle {
 				title = yfmTitle
 			}
-			unescapedTitle, unescapeErr := url.QueryUnescape(title)
+			unescapedTitle, unescapeErr := url.PathUnescape(title)
 			if nil == unescapeErr {
 				title = unescapedTitle
 			}
@@ -889,6 +916,11 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 
 			hPathsIDs[tree.HPath] = tree.ID
 			idPaths[tree.ID] = tree.Path
+
+			count++
+			if 0 == count%4 {
+				util.PushEndlessProgress(fmt.Sprintf(Conf.language(70), fmt.Sprintf("%s", tree.HPath)))
+			}
 			return nil
 		})
 	} else { // 导入单个文件
@@ -920,7 +952,7 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 		if "" != yfmTitle {
 			title = yfmTitle
 		}
-		unescapedTitle, unescapeErr := url.QueryUnescape(title)
+		unescapedTitle, unescapeErr := url.PathUnescape(title)
 		if nil == unescapeErr {
 			title = unescapedTitle
 		}
@@ -999,10 +1031,18 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 	}
 
 	if 0 < len(importTrees) {
+		for id, newID := range moveIDs {
+			for _, importTree := range importTrees {
+				importTree.ID = strings.ReplaceAll(importTree.ID, id, newID)
+				importTree.Path = strings.ReplaceAll(importTree.Path, id, newID)
+			}
+		}
+
 		initSearchLinks()
 		convertWikiLinksAndTags()
 		buildBlockRefInText()
 
+		box := Conf.Box(boxID)
 		for i, tree := range importTrees {
 			indexWriteTreeIndexQueue(tree)
 			if 0 == i%4 {
@@ -1015,15 +1055,41 @@ func ImportFromLocalPath(boxID, localPath string, toPath string) (err error) {
 		searchLinks = map[string]string{}
 
 		// 按照路径排序 Improve sort when importing markdown files https://github.com/siyuan-note/siyuan/issues/11390
-		var paths, hPaths []string
+		var hPaths []string
 		for hPath := range hPathsIDs {
 			hPaths = append(hPaths, hPath)
 		}
 		sort.Strings(hPaths)
+		paths := map[string][]string{}
 		for _, hPath := range hPaths {
-			paths = append(paths, idPaths[hPathsIDs[hPath]])
+			p := idPaths[hPathsIDs[hPath]]
+			parent := path.Dir(p)
+			for {
+				if baseTargetPath == parent {
+					break
+				}
+
+				if ps, ok := paths[parent]; !ok {
+					paths[parent] = []string{p}
+				} else {
+					ps = append(ps, p)
+					ps = gulu.Str.RemoveDuplicatedElem(ps)
+					paths[parent] = ps
+				}
+				p = parent
+				parent = path.Dir(parent)
+			}
 		}
-		ChangeFileTreeSort(boxID, paths)
+
+		sortIDVals := map[string]int{}
+		for _, ps := range paths {
+			sortVal := 0
+			for _, p := range ps {
+				sortIDVals[util.GetTreeID(p)] = sortVal
+				sortVal++
+			}
+		}
+		box.setSort(sortIDVals)
 	}
 
 	IncSync()
@@ -1184,16 +1250,6 @@ func imgHtmlBlock2InlineImg(tree *parse.Tree) {
 }
 
 func reassignIDUpdated(tree *parse.Tree, rootID, updated string) {
-	var blockCount int
-	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
-		if !entering || "" == n.ID {
-			return ast.WalkContinue
-		}
-
-		blockCount++
-		return ast.WalkContinue
-	})
-
 	ast.Walk(tree.Root, func(n *ast.Node, entering bool) ast.WalkStatus {
 		if !entering || "" == n.ID {
 			return ast.WalkContinue
@@ -1207,8 +1263,10 @@ func reassignIDUpdated(tree *parse.Tree, rootID, updated string) {
 		n.SetIALAttr("id", n.ID)
 		if "" != updated {
 			n.SetIALAttr("updated", updated)
-			n.ID = updated + "-" + gulu.Rand.String(7)
-			n.SetIALAttr("id", n.ID)
+			if "" == rootID {
+				n.ID = updated + "-" + gulu.Rand.String(7)
+				n.SetIALAttr("id", n.ID)
+			}
 		} else {
 			n.SetIALAttr("updated", util.TimeFromID(n.ID))
 		}

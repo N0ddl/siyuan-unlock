@@ -18,13 +18,14 @@ package model
 
 import (
 	"bytes"
-	"github.com/88250/lute/editor"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/88250/gulu"
 	"github.com/88250/lute"
 	"github.com/88250/lute/ast"
+	"github.com/88250/lute/editor"
 	"github.com/88250/lute/html"
 	"github.com/88250/lute/parse"
 	"github.com/88250/lute/render"
@@ -110,6 +111,7 @@ func renderBlockText(node *ast.Node, excludeTypes []string) (ret string) {
 	ret = sql.NodeStaticContent(node, excludeTypes, false, false, false)
 	ret = strings.TrimSpace(ret)
 	ret = strings.ReplaceAll(ret, "\n", "")
+	ret = util.UnescapeHTML(ret)
 	ret = util.EscapeHTML(ret)
 	ret = strings.TrimSpace(ret)
 	if "" == ret {
@@ -138,6 +140,36 @@ func renderBlockText(node *ast.Node, excludeTypes []string) (ret string) {
 		ret = buf.String()
 	}
 	return
+}
+
+func fillBlockRefCount(nodes []*ast.Node) {
+	var defIDs []string
+	for _, n := range nodes {
+		ast.Walk(n, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if !entering {
+				return ast.WalkContinue
+			}
+
+			if n.IsBlock() {
+				defIDs = append(defIDs, n.ID)
+			}
+			return ast.WalkContinue
+		})
+	}
+	defIDs = gulu.Str.RemoveDuplicatedElem(defIDs)
+	refCount := sql.QueryRefCount(defIDs)
+	for _, n := range nodes {
+		ast.Walk(n, func(n *ast.Node, entering bool) ast.WalkStatus {
+			if !entering || !n.IsBlock() {
+				return ast.WalkContinue
+			}
+
+			if cnt := refCount[n.ID]; 0 < cnt {
+				n.SetIALAttr("refcount", strconv.Itoa(cnt))
+			}
+			return ast.WalkContinue
+		})
+	}
 }
 
 func renderBlockDOMByNodes(nodes []*ast.Node, luteEngine *lute.Lute) string {

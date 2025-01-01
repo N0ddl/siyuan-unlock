@@ -188,6 +188,7 @@ type BlockStatResult struct {
 	LinkCount  int `json:"linkCount"`
 	ImageCount int `json:"imageCount"`
 	RefCount   int `json:"refCount"`
+	BlockCount int `json:"blockCount"`
 }
 
 func ContextPushMsg(context map[string]interface{}, msg string) {
@@ -238,6 +239,10 @@ func PushClearMsg(msgId string) {
 // PushClearProgress 取消进度遮罩。
 func PushClearProgress() {
 	BroadcastByType("main", "cprogress", 0, "", nil)
+}
+
+func PushUpdateIDs(ids map[string]string) {
+	BroadcastByType("main", "updateids", 0, "", ids)
 }
 
 func PushReloadDoc(rootID string) {

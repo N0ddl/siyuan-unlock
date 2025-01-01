@@ -28,7 +28,7 @@ import {Menu} from "../../plugin/Menu";
 import {getNoContainerElement} from "../wysiwyg/getBlock";
 import {openTitleMenu} from "../header/openTitleMenu";
 import {emitOpenMenu} from "../../plugin/EventBus";
-import {isInAndroid, isIPad, isMac, updateHotkeyTip} from "../util/compatibility";
+import {isInAndroid, isInHarmony, isIPad, isMac, updateHotkeyTip} from "../util/compatibility";
 import {resize} from "../util/resize";
 import {listIndent, listOutdent} from "../wysiwyg/list";
 import {improveBreadcrumbAppearance} from "../wysiwyg/renderBacklink";
@@ -44,7 +44,7 @@ export class Breadcrumb {
         element.className = "protyle-breadcrumb";
         let padHTML = "";
         /// #if BROWSER && !MOBILE
-        if (isIPad() || isInAndroid()) {
+        if (isIPad() || isInAndroid() || isInHarmony()) {
             padHTML = `<button class="block__icon fn__flex-center ariaLabel" disabled aria-label="${window.siyuan.languages.undo}" data-type="undo"><svg><use xlink:href="#iconUndo"></use></svg></button>
 <button class="block__icon fn__flex-center ariaLabel" disabled aria-label="${window.siyuan.languages.redo}" data-type="redo"><svg><use xlink:href="#iconRedo"></use></svg></button>
 <button class="block__icon fn__flex-center ariaLabel" disabled aria-label="${window.siyuan.languages.outdent}" data-type="outdent"><svg><use xlink:href="#iconOutdent"></use></svg></button>
@@ -295,7 +295,7 @@ ${padHTML}
                     window.siyuan.menus.menu.remove();
                 });
                 window.siyuan.menus.menu.append(uploadMenu);
-                if (!isInAndroid()) {
+                if (!isInAndroid() && !isInHarmony()) {
                     window.siyuan.menus.menu.append(new MenuItem({
                         id: this.mediaRecorder?.isRecording ? "endRecord" : "startRecord",
                         current: this.mediaRecorder && this.mediaRecorder.isRecording,
@@ -565,7 +565,7 @@ ${padHTML}
                     type: "open-menu-breadcrumbmore",
                     detail: {
                         protyle,
-                        data: response.data,
+                        data: response.data.stat,
                     },
                     separatorPosition: "top",
                 });
@@ -576,7 +576,7 @@ ${padHTML}
                 iconHTML: "",
                 type: "readonly",
                 // 不能换行，否则移动端间距过大
-                label: `<div class="fn__flex">${window.siyuan.languages.runeCount}<span class="fn__space fn__flex-1"></span>${response.data.runeCount}</div><div class="fn__flex">${window.siyuan.languages.wordCount}<span class="fn__space fn__flex-1"></span>${response.data.wordCount}</div><div class="fn__flex">${window.siyuan.languages.linkCount}<span class="fn__space fn__flex-1"></span>${response.data.linkCount}</div><div class="fn__flex">${window.siyuan.languages.imgCount}<span class="fn__space fn__flex-1"></span>${response.data.imageCount}</div><div class="fn__flex">${window.siyuan.languages.refCount}<span class="fn__space fn__flex-1"></span>${response.data.refCount}</div>`,
+                label: `<div class="fn__flex">${window.siyuan.languages.runeCount}<span class="fn__space fn__flex-1"></span>${response.data.stat.runeCount}</div><div class="fn__flex">${window.siyuan.languages.wordCount}<span class="fn__space fn__flex-1"></span>${response.data.stat.wordCount}</div><div class="fn__flex">${window.siyuan.languages.linkCount}<span class="fn__space fn__flex-1"></span>${response.data.stat.linkCount}</div><div class="fn__flex">${window.siyuan.languages.imgCount}<span class="fn__space fn__flex-1"></span>${response.data.stat.imageCount}</div><div class="fn__flex">${window.siyuan.languages.refCount}<span class="fn__space fn__flex-1"></span>${response.data.stat.refCount}</div><div class="fn__flex">${window.siyuan.languages.blockCount}<span class="fn__space fn__flex-1"></span>${response.data.stat.blockCount}</div>`,
             }).element);
             /// #if MOBILE
             window.siyuan.menus.menu.fullscreen();
